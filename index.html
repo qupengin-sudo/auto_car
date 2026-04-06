@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 遙控車完整駕駛艙</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #f0f0f0; }
+        button { width: 90px; height: 60px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 10px; border: 1px solid #999; }
+        .btn-stop { background-color: #ff4d4d; color: white; }
+        .btn-slide { background-color: #d1ecf1; }
+        .btn-cam { background-color: #ffc107; }
+        .btn-auto { background-color: #28a745; color: white; width: 120px; }
+        .btn-autostop { background-color: #dc3545; color: white; width: 120px; }
+    </style>
+</head>
+<body>
+    <h1>AI 遙控車駕駛艙</h1>
+    <img src="{{ url_for('video_feed') }}" width="640" height="480" style="border: 5px solid #333;">
+
+    <div class="controls">
+        <h3>車體移動</h3>
+        <div><button onmousedown="sendCmd('forward')" onmouseup="sendCmd('stop')">前進</button></div>
+        <div>
+            <button class="btn-slide" onmousedown="sendCmd('left_slide')" onmouseup="sendCmd('stop')">左移</button>
+            <button onmousedown="sendCmd('left')" onmouseup="sendCmd('stop')">左轉</button>
+            <button class="btn-stop" onclick="sendCmd('stop')">停止</button>
+            <button onmousedown="sendCmd('right')" onmouseup="sendCmd('stop')">右轉</button>
+            <button class="btn-slide" onmousedown="sendCmd('right_slide')" onmouseup="sendCmd('stop')">右移</button>
+        </div>
+        <div><button onmousedown="sendCmd('backward')" onmouseup="sendCmd('stop')">後退</button></div>
+    </div>
+
+    <div class="cam-controls">
+        <h3>鏡頭控制</h3>
+        <div><button class="btn-cam" onclick="sendCmd('cam_up')">仰頭</button></div>
+        <div>
+            <button class="btn-cam" onclick="sendCmd('cam_left')">左看</button>
+            <button class="btn-cam" onclick="sendCmd('cam_center')">回正</button>
+            <button class="btn-cam" onclick="sendCmd('cam_right')">右看</button>
+        </div>
+        <div><button class="btn-cam" onclick="sendCmd('cam_down')">低頭</button></div>
+    </div>
+
+    <div style="margin-top: 20px; padding: 20px; background: #bbb; border-radius: 15px; display: inline-block;">
+        <h3>自動駕駛模式</h3>
+        <button class="btn-auto" onclick="sendAuto('start')">AUTO</button>
+        <button class="btn-autostop" onclick="sendAuto('stop')">STOP</button>
+    </div>
+
+    <script>
+        function sendCmd(action) {
+            fetch('/control', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'action=' + action
+            });
+        }
+        function sendAuto(mode) {
+            fetch('/auto_control', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                body: 'mode=' + mode
+            });
+        }
+    </script>
+</body>
+</html>
