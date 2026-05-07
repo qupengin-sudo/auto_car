@@ -1,4 +1,4 @@
-# E2 Autonomous Car Project - Phase 1
+# Auto_Car_Project - Phase 1
 **基於 Raspberry Pi 5 與 OpenCV 的全自動循線系統**
 
 本專案為 E2 自動駕駛開發實作的第一階段。目標是讓配備鏡頭的自走車能透過 **OpenCV** 即時辨識賽道標線，並利用 **PID 控制演算法**，在具有高光反射的地板環境下實現穩定且平滑的全自動循線行駛。
