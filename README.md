@@ -29,6 +29,7 @@
 - `motor_control.py`: 底層馬達驅動與 PCA9685 PWM 訊號控制。
 - `index.html`: Web 前端介面。
 - `test.py`: 硬體初始化測試工具。
+- `roboflow model`: 訓練之紅綠燈辨識模型(受限於容量未實際使用)。
 
 ## 操作指引
 
