@@ -3,66 +3,174 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI 遙控車完整駕駛艙</title>
+    <title>AI 自駕車智能控制台</title>
     <style>
-        body { font-family: Arial, sans-serif; text-align: center; background-color: #f0f0f0; }
-        button { width: 90px; height: 60px; font-size: 16px; margin: 5px; cursor: pointer; border-radius: 10px; border: 1px solid #999; }
-        .btn-stop { background-color: #ff4d4d; color: white; }
-        .btn-slide { background-color: #d1ecf1; }
-        .btn-cam { background-color: #ffc107; }
-        .btn-auto { background-color: #28a745; color: white; width: 120px; }
-        .btn-autostop { background-color: #dc3545; color: white; width: 120px; }
+        :root {
+            --bg-color: #f5f7fa;
+            --card-bg: #ffffff;
+            --primary: #4a90e2;
+            --manual: #ff9800; /* 手動-橘 */
+            --auto: #4caf50;   /* 自動-綠 */
+            --stop: #f44336;   /* 停止-紅 */
+            --cam: #e0e0e0;    /* 雲台-灰 */
+            --slide: #e1f5fe;  /* 側移-淺藍 */
+        }
+
+        body { font-family: 'PingFang TC', sans-serif; background: var(--bg-color); display: flex; flex-direction: column; align-items: center; padding: 20px; }
+        .container { display: grid; grid-template-columns: 1fr 400px; gap: 20px; max-width: 1200px; width: 100%; }
+
+        .card { background: var(--card-bg); border-radius: 15px; padding: 20px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 20px; }
+        .card h3 { margin-top: 0; font-size: 1rem; color: #666; border-left: 4px solid var(--primary); padding-left: 10px; }
+
+        /* 影像與數據 */
+        .video-box img { width: 100%; border-radius: 10px; background: #000; }
+        .status-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 15px; text-align: left; }
+        .status-item { font-size: 0.85rem; color: #888; }
+        .status-item b { display: block; color: #333; font-size: 1rem; transition: color 0.3s; }
+
+        /* 按鈕基礎樣式 */
+        button { border: none; border-radius: 10px; cursor: pointer; transition: 0.2s; font-weight: 500; font-size: 0.9rem; }
+        button:active { transform: scale(0.92); }
+
+        /* 模式切換 */
+        .mode-box { display: flex; gap: 10px; }
+        .btn-mode { flex: 1; padding: 12px; background: #ddd; }
+        .active-manual { background: var(--manual); color: white; }
+        .active-auto { background: var(--auto); color: white; }
+
+        /* 雲台 3x3 十字佈局 */
+        .cam-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; width: 260px; margin: 0 auto; }
+        .btn-cam { width: 80px; height: 60px; background: var(--cam); }
+        .btn-cam-reset { background: #90a4ae; color: white; }
+
+        /* 方向 5 欄橫排佈局 */
+        .move-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; width: 100%; }
+        .btn-move { width: 70px; height: 60px; background: #fff; border: 1px solid #eee; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .btn-slide { background: var(--slide); color: #0277bd; }
+        .btn-stop { background: var(--stop); color: white; font-weight: bold; }
+
     </style>
 </head>
 <body>
-    <h1>AI 遙控車駕駛艙</h1>
-    <img src="{{ url_for('video_feed') }}" width="640" height="480" style="border: 5px solid #333;">
 
-    <div class="controls">
-        <h3>車體移動</h3>
-        <div><button onmousedown="sendCmd('forward')" onmouseup="sendCmd('stop')">前進</button></div>
-        <div>
-            <button class="btn-slide" onmousedown="sendCmd('left_slide')" onmouseup="sendCmd('stop')">左移</button>
-            <button onmousedown="sendCmd('left')" onmouseup="sendCmd('stop')">左轉</button>
-            <button class="btn-stop" onclick="sendCmd('stop')">停止</button>
-            <button onmousedown="sendCmd('right')" onmouseup="sendCmd('stop')">右轉</button>
-            <button class="btn-slide" onmousedown="sendCmd('right_slide')" onmouseup="sendCmd('stop')">右移</button>
+    <h1>AI 自駕車智能控制台</h1>
+
+    <div class="container">
+        <div class="left-panel">
+            <div class="card video-box">
+                <!-- 顯示來自 PiCamera2 的即時影像 -->
+                <img src="{{ url_for('video_feed') }}">
+                <div class="status-row">
+                    <div class="status-item">AI 狀態 <b id="aiTxt">Ready</b></div>
+                    <div class="status-item">車道偏移 <b id="offsetTxt">0.0 px</b></div>
+                    <div class="status-item">目前模式 <b id="modeTxt">MANUAL</b></div>
+                    <div class="status-item">號誌偵測 <b id="lightTxt">無號誌</b></div>
+                </div>
+            </div>
         </div>
-        <div><button onmousedown="sendCmd('backward')" onmouseup="sendCmd('stop')">後退</button></div>
-    </div>
 
-    <div class="cam-controls">
-        <h3>鏡頭控制</h3>
-        <div><button class="btn-cam" onclick="sendCmd('cam_up')">仰頭</button></div>
-        <div>
-            <button class="btn-cam" onclick="sendCmd('cam_left')">左看</button>
-            <button class="btn-cam" onclick="sendCmd('cam_center')">回正</button>
-            <button class="btn-cam" onclick="sendCmd('cam_right')">右看</button>
+        <div class="right-panel">
+            <div class="card">
+                <h3>模式設定</h3>
+                <div class="mode-box">
+                    <button class="btn-mode active-manual" id="mBtn" onclick="sendAuto('stop')">手動駕駛</button>
+                    <button class="btn-mode" id="aBtn" onclick="sendAuto('start')">自動駕駛</button>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>鏡頭雲台控制</h3>
+                <div class="cam-grid">
+                    <div></div>
+                    <button class="btn-cam" onclick="sendCmd('cam_up')">仰頭</button>
+                    <div></div>
+                    
+                    <button class="btn-cam" onclick="sendCmd('cam_left')">左看</button>
+                    <button class="btn-cam btn-cam-reset" onclick="sendCmd('cam_center')">回正</button>
+                    <button class="btn-cam" onclick="sendCmd('cam_right')">右看</button>
+                    
+                    <div></div>
+                    <button class="btn-cam" onclick="sendCmd('cam_down')">低頭</button>
+                    <div></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>車體移動控制</h3>
+                <div class="move-grid">
+                    <!-- 第一橫排：前進 -->
+                    <div></div><div></div>
+                    <button class="btn-move" onmousedown="sendCmd('forward')" onmouseup="sendCmd('stop')">前進</button>
+                    <div></div><div></div>
+
+                    <!-- 第二橫排：左移、左轉、停止、右轉、右移 (已對調) -->
+                    <button class="btn-move btn-slide" onmousedown="sendCmd('left_slide')" onmouseup="sendCmd('stop')">左移</button>
+                    <button class="btn-move" onmousedown="sendCmd('left')" onmouseup="sendCmd('stop')">左轉</button>
+                    <button class="btn-move btn-stop" onclick="sendCmd('stop')">停止</button>
+                    <button class="btn-move" onmousedown="sendCmd('right')" onmouseup="sendCmd('stop')">右轉</button>
+                    <button class="btn-move btn-slide" onmousedown="sendCmd('right_slide')" onmouseup="sendCmd('stop')">右移</button>
+
+                    <!-- 第三橫排：後退 -->
+                    <div></div><div></div>
+                    <button class="btn-move" onmousedown="sendCmd('backward')" onmouseup="sendCmd('stop')">後退</button>
+                    <div></div><div></div>
+                </div>
+            </div>
         </div>
-        <div><button class="btn-cam" onclick="sendCmd('cam_down')">低頭</button></div>
-    </div>
-
-    <div style="margin-top: 20px; padding: 20px; background: #bbb; border-radius: 15px; display: inline-block;">
-        <h3>自動駕駛模式</h3>
-        <button class="btn-auto" onclick="sendAuto('start')">AUTO</button>
-        <button class="btn-autostop" onclick="sendAuto('stop')">STOP</button>
     </div>
 
     <script>
+        // 發送移動指令到伺服器
         function sendCmd(action) {
-            fetch('/control', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'action=' + action
+            fetch('/control', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
+                body: 'action=' + action 
             });
         }
+
+        // 切換自駕與手動模式
         function sendAuto(mode) {
-            fetch('/auto_control', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/x-www-form-urlencoded'},
-                body: 'mode=' + mode
+            const mBtn = document.getElementById('mBtn'), aBtn = document.getElementById('aBtn');
+            const aiTxt = document.getElementById('aiTxt'), modeTxt = document.getElementById('modeTxt');
+            
+            if(mode === 'start') {
+                aBtn.classList.add('active-auto'); mBtn.classList.remove('active-manual');
+                aiTxt.innerText = "Driving..."; modeTxt.innerText = "AUTO";
+            } else {
+                mBtn.classList.add('active-manual'); aBtn.classList.remove('active-auto');
+                aiTxt.innerText = "Ready"; modeTxt.innerText = "MANUAL";
+            }
+            fetch('/auto_control', { 
+                method: 'POST', 
+                headers: {'Content-Type': 'application/x-www-form-urlencoded'}, 
+                body: 'mode=' + mode 
             });
         }
+
+        // 每 0.5 秒定期更新後端數據 (偏移量、號誌狀態、紅燈鎖定狀態)
+        setInterval(() => {
+            fetch('/get_status')
+                .then(response => response.json())
+                .then(data => {
+                    // 更新車道偏移數值
+                    document.getElementById('offsetTxt').innerText = data.offset + ' px';
+
+                    // 更新紅綠燈偵測文字與樣式顏色
+                    const lightTxt = document.getElementById('lightTxt');
+                    if (data.waiting) {
+                        lightTxt.innerText = '紅燈 (停等中)';
+                        lightTxt.style.color = 'var(--stop)';
+                    } else if (data.light === 'green') {
+                        lightTxt.innerText = '綠燈 (通行)';
+                        lightTxt.style.color = 'var(--auto)';
+                    } else {
+                        lightTxt.innerText = '無號誌';
+                        lightTxt.style.color = '#333';
+                    }
+                })
+                .catch(err => console.error("狀態同步失敗:", err));
+        }, 500);
     </script>
 </body>
 </html>
