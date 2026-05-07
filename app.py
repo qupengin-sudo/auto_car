@@ -1,89 +1,109 @@
-from flask import Flask, render_template, request, Response
+from flask import Flask, render_template, request, Response, jsonify
 import cv2
 import threading
 import time
 from picamera2 import Picamera2
 from motor_control import LOBOROBOT
 from detect import get_lane_offset
+from traffic import TrafficManager
 
 app = Flask(__name__)
 car = LOBOROBOT()
 i2c_lock = threading.Lock()
 
 # --- 參數設定區 ---
-MANUAL_SPEED = 40  # 手動模式速度 
-AUTO_SPEED = 35    # 自動駕駛基礎速度 
-OFFSET_SPEED = 10  # 一般轉向時的微調差速
-SHARP_OFFSET_SPEED = 25  # 新增：急彎模式的大幅差速補償量
+MANUAL_SPEED = 40  
+AUTO_SPEED = 35    
+OFFSET_SPEED = 10  
+SHARP_OFFSET_SPEED = 25  
 
-# --- 狀態變數 ---
 pan_angle = 90
 tilt_angle = 40
 auto_drive = False
 last_offset = 0
 
-# 初始化相機
+# 🌟 紅綠燈鎖死與起步記憶變數
+waiting_for_green = False  
+last_moving_state = 'forward' 
+
+current_light_state = 'none'
+current_offset = 0.0
+
 picam2 = Picamera2()
-config = picam2.create_video_configuration(main={"format": 'RGB888', "size": (160, 120)})
+config = picam2.create_video_configuration(main={"format": 'RGB888', "size": (320, 240)})
 picam2.configure(config)
 picam2.start()
+
+# 初始化紅綠燈管理員 (設定為每 5 幀偵測一次，維持畫面順暢)
+traffic_mgr = TrafficManager(frame_interval=5)
+
 def gen_frames():
-    global auto_drive, last_offset
+    global auto_drive, last_offset, waiting_for_green, last_moving_state
+    global current_light_state, current_offset
     current_state = None  
     
     while True:
         frame = picam2.capture_array()
         frame = cv2.rotate(frame, cv2.ROTATE_180)
         
+        # 取得紅綠燈狀態 ('red_stop', 'red_far', 'green', 'none')
+        light_state = traffic_mgr.check_light(frame)
+        current_light_state = light_state
+        
         offset, line_state, danger_state, processed_frame = get_lane_offset(frame)
+        if offset is not None:
+            current_offset = offset
             
         if auto_drive and car:
             target_state = 'stop'
             
+            # --- 0. 嚴格紅綠燈狀態機 ---
+            if light_state == 'red_stop':
+                waiting_for_green = True # 進入右上角區塊，觸發停車鎖死
+                
+            elif light_state == 'green':
+                waiting_for_green = False # 只有看到綠燈，才會解鎖！
+            
+            # 只要被鎖死，就強制停車，無視其他循線邏輯
+            if waiting_for_green:
+                target_state = 'stop'
+                            
             # --- 1. 優先處理危險撞線 ---
-            if danger_state == 'hit_left':
+            elif danger_state == 'hit_left':
                 target_state = 'sharp_steer_right'
+                last_moving_state = target_state 
             elif danger_state == 'hit_right':
                 target_state = 'sharp_steer_left'
+                last_moving_state = target_state
             
-            # --- 2. 正常車道微調 (看見雙線或單線) ---
+            # --- 2. 正常車道微調 ---
             elif line_state != 'none' and offset is not None:
-                last_offset = offset  # 更新最後一次的有效偏差值
-                if last_offset > 9:   
+                last_offset = offset  
+                if last_offset > 18:   
                     target_state = 'steer_right'
-                elif last_offset < -9:  
+                elif last_offset < -18:  
                     target_state = 'steer_left'
                 else:                    
                     target_state = 'forward'
+                last_moving_state = target_state 
                 
-            # --- 3. 霸道丟線補償：無限期維持前動作直到看到線 ---
+            # --- 3. 霸道丟線補償 ---
             elif line_state == 'none':
-                # 只要前一個動作是前進或轉彎，就無限期維持該動作
-                valid_states = ['sharp_steer_right', 'sharp_steer_left', 'steer_right', 'steer_left', 'forward']
-                if current_state in valid_states:
-                    target_state = current_state
-                    # [已移除 cv2.putText 文字渲染，釋放 CPU 效能]
-                else:
-                    target_state = 'stop'  # 除非一開始就沒看過線，才會停車
+                target_state = last_moving_state
 
             # --- 硬體執行層 ---
             if target_state != current_state:
                 with i2c_lock:
                     if target_state == 'stop':
                         car.t_stop(0)
-                        
                     elif target_state == 'sharp_steer_right':
                         car.move_with_offset(AUTO_SPEED, SHARP_OFFSET_SPEED, -SHARP_OFFSET_SPEED, 0)
-                        
                     elif target_state == 'sharp_steer_left':
                         car.move_with_offset(AUTO_SPEED, -SHARP_OFFSET_SPEED, SHARP_OFFSET_SPEED, 0)
-                        
                     elif target_state == 'steer_right':
                         car.move_with_offset(AUTO_SPEED, OFFSET_SPEED, -OFFSET_SPEED, 0)
-                        
                     elif target_state == 'steer_left':
                         car.move_with_offset(AUTO_SPEED, -OFFSET_SPEED, OFFSET_SPEED, 0)
-                        
                     elif target_state == 'forward':
                         car.MotorRun(0, 'forward', AUTO_SPEED); time.sleep(0.01)
                         car.MotorRun(1, 'forward', AUTO_SPEED); time.sleep(0.01)
@@ -91,12 +111,13 @@ def gen_frames():
                         car.MotorRun(3, 'forward', AUTO_SPEED)
                 current_state = target_state 
 
-        # 影像傳輸 (保留 50% 壓縮維持系統低負載)
+        # 影像傳輸 (畫面完全乾淨，不繪製任何字體)
         ret, buffer = cv2.imencode('.jpg', processed_frame, [int(cv2.IMWRITE_JPEG_QUALITY), 50])
         yield (b'--frame\r\n'
                b'Content-Type: image/jpeg\r\n\r\n' + buffer.tobytes() + b'\r\n')
         
         time.sleep(0.1)
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -105,12 +126,22 @@ def index():
 def video_feed():
     return Response(gen_frames(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
+@app.route('/get_status')
+def get_status():
+    global current_light_state, current_offset, waiting_for_green
+    return jsonify({
+        'light': current_light_state,
+        'offset': round(current_offset, 1),
+        'waiting': waiting_for_green
+    })
+
 @app.route('/auto_control', methods=['POST'])
 def auto_control():
-    global auto_drive
+    global auto_drive, waiting_for_green
     mode = request.form.get('mode')
     if mode == 'start': 
         auto_drive = True
+        waiting_for_green = False 
     elif mode == 'stop':
         auto_drive = False
         with i2c_lock: car.t_stop(0)
@@ -140,9 +171,8 @@ def control():
                 elif action == 'right_slide': car.moveRight(speed=MANUAL_SPEED, t_time=0)
                 elif action == 'stop': car.t_stop(t_time=0)
                 
-                # 鏡頭平滑控制
                 elif action == 'cam_up':
-                    tilt_angle = max(20, tilt_angle - 5)
+                    tilt_angle = max(0, tilt_angle - 5)
                     car.set_servo_angle(9, tilt_angle, 0)
                 elif action == 'cam_down':
                     tilt_angle = min(80, tilt_angle + 5)
@@ -154,7 +184,7 @@ def control():
                     pan_angle = max(30, pan_angle - 5)
                     car.set_servo_angle(10, pan_angle, 0)
                 elif action == 'cam_center':
-                    pan_angle, tilt_angle = 90, 40
+                    pan_angle, tilt_angle = 77,0
                     car.set_servo_angle(10, pan_angle, 0)
                     car.set_servo_angle(9, tilt_angle, 0)
             except Exception as e:

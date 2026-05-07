@@ -5,23 +5,23 @@ def get_lane_offset(img):
     # 1. 影像預處理
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
     
-    # 2. 核心優化：頂帽運算
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+    # 2. 核心優化：頂帽運算 (針對 320x240 加大 Kernel)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 15))
     tophat = cv2.morphologyEx(gray, cv2.MORPH_TOPHAT, kernel)
     
-    # 3. 🌟 自動門檻 (Otsu's Binarization)
-    # 它會自動尋找最適合膠帶與地板之間的亮度切點，不用再手動猜數字
+    # 3. 自動門檻 (Otsu's Binarization)
     _, thresh = cv2.threshold(tophat, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
     
-    # 4. 閉運算補洞 (使用較小的核心，避免變形)
-    weld_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+    # 4. 閉運算補洞
+    weld_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
     thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, weld_kernel)
     
-    # 5. ROI 遮罩 (高度範圍調整為 0.35 ~ 0.9，稍微看低一點)
+    # 5. ROI 遮罩範圍設定
+    # 頂部 0.60，底部 1.0 (涵蓋至螢幕最下方)
     height, width = thresh.shape
     mask_roi = np.zeros_like(thresh)
-    roi_vertices = np.array([[(0, int(height * 0.9)), (0, int(height * 0.35)), 
-                              (width, int(height * 0.35)), (width, int(height * 0.9))]], dtype=np.int32)
+    roi_vertices = np.array([[(0, height), (0, int(height * 0.60)), 
+                              (width, int(height * 0.60)), (width, height)]], dtype=np.int32)
     cv2.fillPoly(mask_roi, roi_vertices, 255)
     final_mask = cv2.bitwise_and(thresh, mask_roi)
 
@@ -33,12 +33,13 @@ def get_lane_offset(img):
     
     for cnt in contours:
         area = cv2.contourArea(cnt)
-        # 只要有一點面積就抓看看，我們靠長寬比過濾就好
-        if area > 150: 
+        # 面積門檻 600
+        if area > 600: 
             rect = cv2.minAreaRect(cnt)
             (x, y), (w, h), angle = rect
             aspect_ratio = max(w, h) / (min(w, h) + 0.1)
             
+            # 長寬比判定
             if aspect_ratio > 1.5: 
                 M = cv2.moments(cnt)
                 if M["m00"] != 0:
@@ -48,6 +49,7 @@ def get_lane_offset(img):
                     bottommost = cnt[cnt[:,:,1].argmax()][0]
                     bx = bottommost[0] 
                     
+                    # 繪製視覺反饋 (保留繪製功能)
                     if bx < frame_center:
                         left_lines_x.append(cx)
                         cv2.drawContours(img, [cnt], -1, (0, 255, 255), 3) # 黃線
@@ -70,9 +72,9 @@ def get_lane_offset(img):
     if line_state == 'both': 
         lane_center = (left_avg + right_avg) // 2
     elif line_state == 'only_left': 
-        lane_center = left_avg + 45 
+        lane_center = left_avg + 90 
     elif line_state == 'only_right': 
-        lane_center = right_avg - 45
+        lane_center = right_avg - 90
     else: 
         return None, 'none', None, img
         
@@ -80,7 +82,7 @@ def get_lane_offset(img):
     
     # 撞線保護判定
     danger_state = None
-    if left_avg and (frame_center - left_avg) < 18: danger_state = 'hit_left'
-    elif right_avg and (right_avg - frame_center) < 18: danger_state = 'hit_right'
+    if left_avg and (frame_center - left_avg) < 36: danger_state = 'hit_left'
+    elif right_avg and (right_avg - frame_center) < 36: danger_state = 'hit_right'
         
     return offset, line_state, danger_state, img
