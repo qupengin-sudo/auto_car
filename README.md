@@ -40,5 +40,5 @@
 
 1. 確保 Raspberry Pi 5 已連接 Camera 與馬達驅動板。
 2. 安裝必要套件：`pip install flask opencv-python numpy smbus2`。
-3. 執行主程式：`python3 app.py`。
-4. 於瀏覽器開啟 `http://<Pi_IP>:5000` 即可進入監控介面並啟動 **自動駕駛**。
+3. 執行主程式：`python app.py`。
+4. 於瀏覽器開啟 `http://<Pi_IP>:6255` 即可進入監控介面並啟動 **自動駕駛**。
